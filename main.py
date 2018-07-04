@@ -74,11 +74,15 @@ def train(model, train_loader, args, beta=1, cuda=True):
             # Collect statistics
             total_loss += loss.item()
 
-        # Report statistics to NSML
-        nsml.report(summary = True,
-                    epoch = epoch,
-                    epoch_total = args.epochs,
-                    train__loss = total_loss)
+            if args.draft:
+                print("Loss at iter {}: {}".format(it, loss.item))
+
+        # Report statistics to NSML (if not draft)
+        if not args.draft:
+            nsml.report(summary = True,
+                        epoch = epoch,
+                        epoch_total = args.epochs,
+                        train__loss = total_loss)
 
         if args.draft:
             break
@@ -95,8 +99,7 @@ def main():
                           shuffle = args.shuffle)
 
     # Run training
-    model = DeepSteg(batch_size = args.batch_size,
-                     im_dim = (255,255))        # TODO fix when data is replaced
+    model = DeepSteg(batch_size = args.batch_size, im_dim = (255,255))        # TODO fix when data is replaced
 
     train(model = model,
           train_loader = loaders['train'],

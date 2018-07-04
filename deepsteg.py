@@ -34,7 +34,7 @@ class DeepSteg(nn.Module):
         self._h_out_channels = [50] * (self._h_layer_num - 1) + [self._image_channels,]     # final output dim
         self._h_kernel_sizes = [5,5,5,5,5]
         self._h_paddings = [kernel // 2 for kernel in self._h_kernel_sizes]
-        hnet = [nn.Conv2d(c_in, c_out, kernel, pad) \
+        hnet = [nn.Conv2d(c_in, c_out, kernel_size=kernel, stride=1, padding=pad) \
                     for c_in, c_out, kernel, pad \
                     in zip(self._h_in_channels, self._h_out_channels, \
                         self._h_kernel_sizes, self._h_paddings)]
@@ -49,7 +49,7 @@ class DeepSteg(nn.Module):
         self._r_out_channels = [50] * (self._r_layer_num - 1) + [self._image_channels,]     # final output dim
         self._r_kernel_sizes = [5,5,5,5,5]
         self._r_paddings = [kernel // 2 for kernel in self._r_kernel_sizes]
-        rnet = [nn.Conv2d(c_in, c_out, kernel, pad) \
+        rnet = [nn.Conv2d(c_in, c_out, kernel_size=kernel, stride=1, padding=pad) \
                 for c_in, c_out, kernel, pad \
                 in zip(self._r_in_channels, self._r_out_channels, \
                     self._r_kernel_sizes, self._r_paddings)]
@@ -72,10 +72,7 @@ class DeepSteg(nn.Module):
 
         # Run reveal network
         revealed_out = torch.Tensor(hidden_out)
-        print(self._rnet)
-        import pdb; pdb.set_trace()
         for idx, layer in enumerate(self._rnet):
-            print('layer_num:', idx, ', layer:', type(layer))
             revealed_out = layer(revealed_out)
 
         return prep_out, hidden_out, revealed_out
