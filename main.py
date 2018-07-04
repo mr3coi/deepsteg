@@ -8,14 +8,15 @@ import os
 from deepsteg import DeepSteg
 from data_loader import get_loaders # TODO add ImageNetDataset if needed
 
+import visdom
 import nsml
-from nsml import DATASET_PATH
+from nsml import DATASET_PATH, Visdom
 
 def get_parser():
     parser = argparse.ArgumentParser()
 
     # Hyperparameters
-    parser.add_argument("--epochs", default=10,
+    parser.add_argument("--epochs", default=100,
                         help="Number of epochs to run training in.")
     parser.add_argument("--batch-size", default=50,
                         help="Size of a single minibatch.")
@@ -33,6 +34,12 @@ def get_parser():
     # Others
     parser.add_argument("--draft", action='store_true',
                         help="Conduct a test run consisting of a single epoch.")
+    parser.add_argument("--local", action='store_true',
+                        help="Conduct a test run on the local machine (instead of NSML server).")
+    parser.add_argument("--verbose", action='store_true',
+                        help="Print progress to log.")
+    parser.add_argument("--local_dataset_path", default='./data/deepsteg_imagenet',
+                        help="Conduct a test run on the local machine (instead of NSML server).")
     return parser
 
 
@@ -46,6 +53,9 @@ def train(model, train_loader, args, beta=1, cuda=True):
     device = torch.device("cuda" if use_cuda else "cpu")
     model = model.to(device)
 
+    # Initialize visdom object
+    viz = Visdom(visdom=visdom)
+
     # Specify loss function & optimizer
     criterion = nn.L1Loss()
     parameters = [p for p in model.parameters() if p.requires_grad]
@@ -55,16 +65,19 @@ def train(model, train_loader, args, beta=1, cuda=True):
     for epoch in range(args.epochs):
         total_loss = 0
 
+        if args.verbose:
+            print('=============== Epoch {} ==============='.format(epoch+1))
+
         for it, (covers, secrets) in enumerate(train_loader):
             # Enable CUDA if specified
             covers, secrets = covers.to(device), secrets.to(device)
 
             # Forward run
-            outputs = model.forward(covers, secrets)
+            prepped, container, revealed = model.forward(covers, secrets, device=device)
 
             # Compute loss
-            loss = criterion(outputs['container'], covers)
-            loss += beta * criterion(outputs['revealed'], secrets)
+            loss = criterion(container, covers)
+            loss += beta * criterion(revealed, secrets)
 
             # Do back-propagation
             model.zero_grad()
@@ -74,15 +87,29 @@ def train(model, train_loader, args, beta=1, cuda=True):
             # Collect statistics
             total_loss += loss.item()
 
-            if args.draft:
-                print("Loss at iter {}: {}".format(it, loss.item))
+            if args.verbose:
+                print("\tLoss at iter {}: {}".format(it+1, loss.item()))
+
+        if args.verbose:
+            print('Loss at epoch {}: {}'.format(epoch+1, total_loss / len(train_loader)))
 
         # Report statistics to NSML (if not draft)
-        if not args.draft:
+        if not args.local:
             nsml.report(summary = True,
-                        epoch = epoch,
+                        step = epoch * len(train_loader),
                         epoch_total = args.epochs,
-                        train__loss = total_loss)
+                        train__loss = total_loss / len(train_loader))
+
+            # Visualize input & output images
+            images = [images.detach()[0] for images in [covers, secrets, container, revealed]]
+            if use_cuda:
+                images = [image.cpu() for image in images]
+            images = [image.numpy() for image in images]
+            titles = ['Cover Image', 'Secret Image', 'Container Image', 'Revealed Image']
+            titles = ['epoch_{}'.format(epoch) + txt for txt in titles]
+            images = dict(zip(titles, images))
+            for title, image in images.items():
+                viz.image(image, opts=dict(title=title))
 
         if args.draft:
             break
@@ -90,10 +117,12 @@ def train(model, train_loader, args, beta=1, cuda=True):
 def main():
     parser = get_parser()
     args = parser.parse_args()
-    DATASET_PATH = './data/deepsteg_imagenet'
 
     # Setup DataLoader
-    ROOT_PATH = os.path.join(DATASET_PATH, 'train') # Root directory for the dataset
+    if args.local:
+        ROOT_PATH = os.path.join(args.local_dataset_path, 'train') # Root directory for the dataset
+    else:
+        ROOT_PATH = os.path.join(DATASET_PATH, 'train') # Root directory for the dataset
     loaders = get_loaders(root_path = ROOT_PATH,
                           batch_size = args.batch_size,
                           shuffle = args.shuffle)
