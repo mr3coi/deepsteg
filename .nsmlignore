@@ -1,0 +1,8 @@
+data
+.DS_Store
+*.swp
+.gitignore
+.git
+README.md
+
+preproc.py
