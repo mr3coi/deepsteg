@@ -18,10 +18,12 @@ def get_parser():
     # Hyperparameters
     parser.add_argument("--epochs", default=100,
                         help="Number of epochs to run training in.")
-    parser.add_argument("--batch-size", default=50,
+    parser.add_argument("--batch-size", default=25,
                         help="Size of a single minibatch.")
     parser.add_argument("--learning-rate", default=0.001,
                         help="Size of the learning rate for training.")
+    parser.add_argument("--beta", default=1.0,
+                        help="The scaling parameter described in the paper.")
 
     # PyTorch-related
     parser.add_argument("--no-cuda", action='store_true',
@@ -38,7 +40,9 @@ def get_parser():
                         help="Conduct a test run on the local machine (instead of NSML server).")
     parser.add_argument("--verbose", action='store_true',
                         help="Print progress to log.")
-    parser.add_argument("--local_dataset_path", default='./data/deepsteg_imagenet',
+    parser.add_argument("--local-dataset-path", default='./data/deepsteg_imagenet',
+                        help="Conduct a test run on the local machine (instead of NSML server).")
+    parser.add_argument("--max-dataset-size", default=0,
                         help="Conduct a test run on the local machine (instead of NSML server).")
     return parser
 
@@ -61,6 +65,9 @@ def train(model, train_loader, args, beta=1, cuda=True):
     parameters = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.Adam(params = parameters, lr = args.learning_rate)
 
+    # Compute the number of iterations in an epoch
+    num_iters = len(train_loader)
+
     # Conduct training
     for epoch in range(args.epochs):
         total_loss = 0
@@ -69,6 +76,10 @@ def train(model, train_loader, args, beta=1, cuda=True):
             print('=============== Epoch {} ==============='.format(epoch+1))
 
         for it, (covers, secrets) in enumerate(train_loader):
+            if float(args.max_dataset_size) > 0 and it * int(args.batch_size) >= int(args.max_dataset_size):
+                num_iters = it
+                break
+
             # Enable CUDA if specified
             covers, secrets = covers.to(device), secrets.to(device)
 
@@ -91,25 +102,28 @@ def train(model, train_loader, args, beta=1, cuda=True):
                 print("\tLoss at iter {}: {}".format(it+1, loss.item()))
 
         if args.verbose:
-            print('Loss at epoch {}: {}'.format(epoch+1, total_loss / len(train_loader)))
+            print('Loss at epoch {}: {}'.format(epoch+1, total_loss / num_iters))
 
         # Report statistics to NSML (if not draft)
         if not args.local:
             nsml.report(summary = True,
                         step = epoch * len(train_loader),
                         epoch_total = args.epochs,
-                        train__loss = total_loss / len(train_loader))
+                        train__loss = total_loss / num_iters)
 
             # Visualize input & output images
             images = [images.detach()[0] for images in [covers, secrets, container, revealed]]
             if use_cuda:
                 images = [image.cpu() for image in images]
             images = [image.numpy() for image in images]
+            '''
             titles = ['Cover Image', 'Secret Image', 'Container Image', 'Revealed Image']
-            titles = ['epoch_{}'.format(epoch) + txt for txt in titles]
+            titles = ['epoch_{}_'.format(epoch) + txt for txt in titles]
             images = dict(zip(titles, images))
             for title, image in images.items():
                 viz.image(image, opts=dict(title=title))
+            '''
+            viz.images(images, opts=dict(nrow=1, title='epoch_{}'.format(epoch)))
 
         if args.draft:
             break
@@ -128,11 +142,12 @@ def main():
                           shuffle = args.shuffle)
 
     # Run training
-    model = DeepSteg(batch_size = args.batch_size, im_dim = (255,255))        # TODO fix when data is replaced
+    model = DeepSteg(batch_size = int(args.batch_size), im_dim = (255,255))        # TODO fix when data is replaced
 
     train(model = model,
           train_loader = loaders['train'],
-          args = args)
+          args = args,
+          beta = float(args.beta))
     print("all successfully completed")
 
 if __name__ == "__main__":
