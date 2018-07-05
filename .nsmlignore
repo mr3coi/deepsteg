@@ -1,4 +1,6 @@
 data
+sessions
+
 .DS_Store
 *.swp
 .gitignore
