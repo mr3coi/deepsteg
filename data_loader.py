@@ -13,7 +13,7 @@ class ImageDataset(Dataset):
     Transform the images into (C,H,W) format (from (H,W,C)), and
         into arrays of pixel values in float of range 0-1
     '''
-    def __init__(self, path):
+    def __init__(self, path, c_mode='RGB', s_mode='RGB'):
         '''
         :param path: path to the directory containing the images
         :type path: str
@@ -22,18 +22,27 @@ class ImageDataset(Dataset):
         self._secrets_path = os.path.join(path, 'secrets')
         self._covers = os.listdir(self._covers_path)
         self._secrets = os.listdir(self._secrets_path)
+        self._c_mode = c_mode
+        self._s_mode = s_mode
 
     def __len__(self):
         return len(self._covers)
 
     def __getitem__(self, idx):
-        cover_image = Image.open(os.path.join(self._covers_path, self._covers[idx])).convert('RGB')
-        secret_image = Image.open(os.path.join(self._secrets_path, self._secrets[idx])).convert('RGB')
-        arrays = [np.array(image).astype(float).transpose(2,0,1) / 256 for image in (cover_image, secret_image)]
+        cover_image = Image.open(os.path.join(self._covers_path, self._covers[idx])).convert(self._c_mode)
+        secret_image = Image.open(os.path.join(self._secrets_path, self._secrets[idx])).convert(self._s_mode)
+        arrays = []
+        for image, mode in zip((cover_image, secret_image), (self._c_mode, self._s_mode)):
+            arr = np.array(image) / 256
+            if mode == 'L':
+                arr = np.reshape(arr, arr.shape + (1,))
+            arrays.append(arr)
+        arrays = [arr.transpose(2,0,1) for arr in arrays]
         arrays = [torch.from_numpy(arr).float() for arr in arrays]    # convert to 'torch.Tensor'
         return arrays
 
-def get_loaders(root_path: str, batch_size: int, shuffle=True, num_workers=2):
+def get_loaders(root_path: str, batch_size: int, shuffle=True, num_workers=2,
+                c_mode='RGB', s_mode='RGB'):
     '''
     Create DataLoaders from the given database.
     Assumes that images are located in 'train', 'val', 'test' directories
@@ -53,9 +62,10 @@ def get_loaders(root_path: str, batch_size: int, shuffle=True, num_workers=2):
     :return: a dictionary mapping 'train/test/val' to its corresponding loader
     :rtype: dictionary(str, torch.utils.data.DataLoader)
     '''
+    assert type(batch_size) == int, "batch_size: required type 'int', but got {}".format(type(batch_size))
     subsets = ['train','val','test'] 
     paths = [os.path.join(root_path, subset) for subset in subsets]
-    loaders = [DataLoader(dataset = ImageDataset(path),
+    loaders = [DataLoader(dataset = ImageDataset(path, c_mode=c_mode, s_mode=s_mode),
                           batch_size = batch_size,
                           shuffle=shuffle,
                           num_workers = num_workers) for path in paths]
