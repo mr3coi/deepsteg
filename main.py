@@ -12,6 +12,7 @@ from data_loader import get_loaders # TODO add ImageNetDataset if needed
 import visdom
 import nsml
 from nsml import DATASET_PATH, Visdom
+from itertools import product
 
 def get_parser():
     parser = argparse.ArgumentParser()
@@ -26,9 +27,9 @@ def get_parser():
     parser.add_argument("--beta", default=1.0,
                         help="The scaling parameter described in the paper.")
     parser.add_argument("--c-mode", default="RGB",
-                        help="The image mode for the cover images.")
+                        help="The image mode for the cover images (supported: 'RGB', 'L').")
     parser.add_argument("--s-mode", default="RGB",
-                        help="The image mode for the secret images.")
+                        help="The image mode for the secret images (supported: 'RGB', 'L').")
     parser.add_argument("--noise-level", type=float, default=0.004,     # 1/256 = (approx.) 0.004
                         help="The scaling parameter for the noise added to the reveal network.")
 
@@ -51,6 +52,12 @@ def get_parser():
                         help="Conduct a test run on the local machine (instead of NSML server).")
     parser.add_argument("--max-dataset-size", default=0,
                         help="Conduct a test run on the local machine (instead of NSML server).")
+    parser.add_argument("--c-draw-rgb", action='store_true',
+                        help="Show & compare intensities of each channel of the cover and container images. \
+                        Ignored if --c-mode == 'L'.")
+    parser.add_argument("--s-draw-rgb", action='store_true',
+                        help="Show & compare intensities of each channel of the secret and revealed images. \
+                        Ignored if --s-mode == 'L'.")
     return parser
 
 
@@ -132,15 +139,12 @@ def train(model, train_loader, args, beta=1, cuda=True):
                         train__loss = total_loss / num_iters)
 
             # Visualize input & output images
-            images = [images.detach()[0] for images in [covers, secrets, container, revealed]]
-            if use_cuda:
-                images = [image.cpu() for image in images]
-            images = [image.numpy() for image in images]
-            if args.c_mode == args.s_mode:
-                viz.images(images, opts=dict(nrow=1, title='epoch_{}'.format(epoch+1)))
-            else:
-                for title, image in zip(['cover','secret','container','revealed'],images):
-                    viz.image(image, opts=dict(title=title,caption='epoch_{}'.format(epoch+1)))
+            images = [images.detach()[0] \
+                        for images in [covers, secrets, container, revealed]]   # select example images
+            visualize(viz, images, epoch,
+                      c_mode=args.c_mode, s_mode = args.s_mode,
+                      c_draw_rgb=args.c_draw_rgb, s_draw_rgb = args.s_draw_rgb,
+                      use_cuda = use_cuda)
 
         # Save session if minimum loss is renewed
         if not args.draft and not args.local and total_loss < min_loss:
@@ -149,6 +153,41 @@ def train(model, train_loader, args, beta=1, cuda=True):
 
         if args.draft:
             break
+
+def visualize(viz, images, epoch, c_mode='RGB', s_mode='RGB',
+              c_draw_rgb=False, s_draw_rgb=False, use_cuda=False):
+    '''
+    :param images: list of [covers, secrets, container, revealed] images
+    :type images: list(torch.Tensor) or list(torch.cuda.Tensor)
+    '''
+    # Copy images to host memory
+    if use_cuda:
+        images = [image.cpu() for image in images]
+
+    # Conver to numpy arrays
+    images = [image.numpy() for image in images]
+
+    # Visualize the images
+    if c_mode == s_mode:      # use container if applicable
+        viz.images(images, opts=dict(nrow=1, title='epoch_{}'.format(epoch+1)))
+    else:                               # render separately
+        for title, image in zip(['cover','secret','container','revealed'],images):
+            viz.image(image, opts=dict(title=title,caption='epoch_{}'.format(epoch+1)))
+
+    # Visualize RGB channels separately
+    cover, secret, container, revealed = images
+    if c_mode == 'RGB' and c_draw_rgb:
+        targets = [cover, container]
+        viz.images([image[channel].reshape((1,) + image.shape[1:]) \
+                        for channel, image in product(list(range(3)),targets)],
+                   opts=dict(title="RGB comparison : epoch {}".format(epoch),
+                             caption="R_cover, R_container, G_cover, G_container, B_cover, B_container"))
+    if s_mode == 'RGB' and s_draw_rgb:
+        targets = [secret, revealed]
+        viz.images([image[channel].reshape((1,) + image.shape[1:]) \
+                        for channel, image in product(list(range(3)),targets)],
+                   opts=dict(title="RGB comparison : epoch {}".format(epoch),
+                             caption="R_secret, R_revealed, G_secret, G_revealed, B_secret, B_revealed"))
 
 def bind_model(model, optimizer=None, sample=None):
     def save(filename, **kwargs):
