@@ -25,16 +25,43 @@ class DeepSteg(nn.Module):
         self._batch_size = batch_size
         channels = {"RGB":3,"L":1}
 
-        # Prep network - TODO implement
-        self._prep_out_channels = channels[s]
+        # =========================== Prep network ===================================
+        self._p_out_channel = 3
 
-        # Hide network
+        ### Convolution layers
+        self._p_layer_num = 5
+        self._p_kernel_type = [1,3,5]
+        self._p_kernel_num = len(self._p_kernel_type)
+
+        self._p_in_channels = [channels[s],] + [50,] * (self._p_layer_num - 1)
+        self._p_out_channels = [50,] * (self._p_layer_num - 1) + [self._p_out_channel,]
+        self._p_kernel_sizes = [[val,] * self._p_layer_num for val in self._p_kernel_type]
+        self._p_paddings = [[layer_kernel // 2 for layer_kernel in kernel_size] \
+                                for kernel_size in self._p_kernel_sizes]
+
+        p_nets = [[nn.Conv2d(c_in, c_out, kernel_size=kernel, stride=1, padding=(kernel//2)) \
+                        for c_in, c_out, kernel \
+                        in zip(self._p_in_channels, self._p_out_channels, kernel_size)] \
+                    for kernel_size \
+                    in self._p_kernel_sizes]
+
+        ### Batch Norm. (input channel: concatenated)
+        p_batchnorms = [nn.BatchNorm2d(num_features = C) for C in self._p_out_channels]
+
+        ### Non-linearities
+        p_nls = [nn.ReLU(),] * (self._p_layer_num-1) + [nn.Sigmoid(),]
+
+        self._p_net = nn.ModuleList(nn.ModuleList(layers_list) \
+                                        for layers_list \
+                                        in (*p_nets, p_batchnorms, p_nls))
+
+        # =========================== Hide network ===================================
         '''
         self._h_layer_num = 5
         self._h_kernel_type = [1,3,5]
         self._h_kernel_num = len(self._h_kernel_type)
 
-        self._h_in_channels = [channels[c] + self._prep_out_channels,] \
+        self._h_in_channels = [channels[c] + self._p_out_channel,] \
                 + [50 * self._h_kernel_num,] * (self._h_layer_num - 1)     # input dim
         self._h_out_channels = [50 * self._h_kernel_num,] * (self._h_layer_num - 1) + [channels[c],]     # final output dim
         self._h_kernel_sizes = [[val,] * self._h_layer_num for val in self._h_kernel_type]
@@ -67,7 +94,7 @@ class DeepSteg(nn.Module):
                     for kernel_size, paddings \
                     in zip(self._h_kernel_sizes, self._h_paddings)]
         '''
-        self._h_in_channels = [channels[c] + self._prep_out_channels,] + [50,] * (self._h_layer_num - 1)
+        self._h_in_channels = [channels[c] + self._p_out_channel,] + [50,] * (self._h_layer_num - 1)
         self._h_out_channels = [50,] * (self._h_layer_num - 1) + [channels[c],]
         self._h_kernel_sizes = [[val,] * self._h_layer_num for val in self._h_kernel_type]
         h_nets = [[nn.Conv2d(c_in, c_out, kernel_size=kernel, stride=1, padding=(kernel//2) ) \
@@ -84,7 +111,7 @@ class DeepSteg(nn.Module):
 
         self._h_net = nn.ModuleList(nn.ModuleList(layers_list) for layers_list in (*h_nets, h_batchnorms, h_nls))
 
-        # Reveal network
+        # =========================== Reveal network ===================================
         ### Convolution layers
         self._r_layer_num = 5
         self._r_kernel_type = [1,3,5]
@@ -121,18 +148,22 @@ class DeepSteg(nn.Module):
                                         for layers_list \
                                         in (*r_nets, r_batchnorms, r_nls))
 
-    def forward(self, covers, secrets, device, noise_level=None):
-        # Run prep network - TODO implement => out = !
-        #images['prepped'] = torch.Tensor(out)
-        prep_out = secrets   # TODO replace w/ filtered version once implemented
+    def forward(self, covers, secrets, device, noise_level=0):
+        # Run prep network
+        prep_out = secrets
+
+        for conv1, conv2, conv3, batchnorm, nls in zip(*self._p_net):
+            conv_res1 = conv1(prep_out)
+            conv_res2 = conv2(prep_out)
+            conv_res3 = conv3(prep_out)
+            #prep_out = torch.cat([conv_res1, conv_res2, conv_res3], dim=1)   # deprecated
+            prep_out = reduce(torch.add, [conv_res1, conv_res2, conv_res3])
+            prep_out = batchnorm(prep_out)
+            prep_out = nls(prep_out)
 
         # Run hiding network
             # concatenate in the last dimension (channels)
         hidden_out = torch.cat((covers,prep_out), dim=1).to(device)    # hidden_in
-        '''
-        for layer in self._h_net:
-            hidden_out = layer(hidden_out)
-        '''
 
         for conv1, conv2, conv3, batchnorm, nls in zip(*self._h_net):
             conv_res1 = conv1(hidden_out)
