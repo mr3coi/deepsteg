@@ -7,7 +7,7 @@ import os
 import pickle
 
 from deepsteg import DeepSteg
-from data_loader import get_loaders # TODO add ImageNetDataset if needed
+from data_loader import get_loaders
 
 import visdom
 import nsml
@@ -18,20 +18,18 @@ def get_parser():
     parser = argparse.ArgumentParser()
 
     # Hyperparameters
-    parser.add_argument('-e', "--epochs", default=100,
+    parser.add_argument('-e', "--epochs", default=100, type=int,
                         help="Number of epochs to run training in.")
-    parser.add_argument("--batch-size", default=25,
+    parser.add_argument("--batch-size", default=25, type=int,
                         help="Size of a single minibatch.")
-    parser.add_argument("--learning-rate", default=0.001,
+    parser.add_argument("--learning-rate", default=0.001, type=float,
                         help="Size of the learning rate for training.")
-    parser.add_argument("--beta", default=1.0,
+    parser.add_argument("--beta", default=1.0, type=float,
                         help="The scaling parameter described in the paper.")
-    parser.add_argument("--c-mode", default="RGB",
-                        help="The image mode for the cover images (supported: 'RGB', 'L').")
-    parser.add_argument("--s-mode", default="RGB",
-                        help="The image mode for the secret images (supported: 'RGB', 'L').")
     parser.add_argument("--noise-level", type=float, default=0.004,     # 1/256 = (approx.) 0.004
                         help="The scaling parameter for the noise added to the reveal network.")
+    parser.add_argument("--loss", default='MSE',
+                        help="The loss function to use for training (supported: 'L1', 'MSE').")
 
     # PyTorch-related
     parser.add_argument("--no-cuda", action='store_true',
@@ -41,23 +39,33 @@ def get_parser():
     parser.add_argument("--no-shuffle", dest='shuffle', action='store_false',
                         help="Do not shuffle the dataset when generating DataLoaders.")
 
-    # Others
-    parser.add_argument('-d', "--draft", action='store_true',
-                        help="Conduct a test run consisting of a single epoch.")
-    parser.add_argument('-l', "--local", action='store_true',
-                        help="Conduct a test run on the local machine (instead of NSML server).")
+    # Visualization
     parser.add_argument('-v', "--verbose", action='store_true',
                         help="Print progress to log.")
-    parser.add_argument("--local-dataset-path", default='./data/deepsteg_imagenet',
-                        help="Conduct a test run on the local machine (instead of NSML server).")
-    parser.add_argument("--max-dataset-size", default=0,
-                        help="Conduct a test run on the local machine (instead of NSML server).")
+    parser.add_argument("--viz-count", default=1, type=int,
+                        help="Number of samples to visualize \
+                             (starting from the first image of the last minibatch).")
+    parser.add_argument("--c-mode", default="RGB",
+                        help="The image mode for the cover images (supported: 'RGB', 'L').")
+    parser.add_argument("--s-mode", default="RGB",
+                        help="The image mode for the secret images (supported: 'RGB', 'L').")
     parser.add_argument("--c-draw-rgb", action='store_true',
                         help="Show & compare intensities of each channel of the cover and container images. \
                         Ignored if --c-mode == 'L'.")
     parser.add_argument("--s-draw-rgb", action='store_true',
                         help="Show & compare intensities of each channel of the secret and revealed images. \
                         Ignored if --s-mode == 'L'.")
+
+    # Others
+    parser.add_argument('-d', "--draft", action='store_true',
+                        help="Conduct a test run consisting of a single epoch.")
+    parser.add_argument('-l', "--local", action='store_true',
+                        help="Conduct a test run on the local machine (instead of NSML server).")
+    parser.add_argument("--local-dataset-path", default='./data/deepsteg_imagenet',
+                        help="Conduct a test run on the local machine (instead of NSML server).")
+    parser.add_argument("--max-dataset-size", default=0, type=int,
+                        help="Conduct a test run on the local machine (instead of NSML server).")
+
     return parser
 
 
@@ -79,7 +87,12 @@ def train(model, train_loader, args, beta=1, cuda=True):
         viz = Visdom(visdom=visdom)
 
     # Specify loss function & optimizer
-    criterion = nn.L1Loss()
+    if args.loss == 'L1':
+        criterion = nn.L1Loss()
+    elif args.loss == 'MSE':
+        criterion = nn.MSELoss()
+    else:
+        raise NotImplementedError("Only L1Loss(cmd arg:'L1') and MSELoss(cmd arg:'MSE') are supported.")
     parameters = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.Adam(params = parameters, lr = args.learning_rate)
 
@@ -139,12 +152,13 @@ def train(model, train_loader, args, beta=1, cuda=True):
                         train__loss = total_loss / num_iters)
 
             # Visualize input & output images
-            images = [images.detach()[0] \
-                        for images in [covers, secrets, container, revealed]]   # select example images
-            visualize(viz, images, epoch,
-                      c_mode=args.c_mode, s_mode = args.s_mode,
-                      c_draw_rgb=args.c_draw_rgb, s_draw_rgb = args.s_draw_rgb,
-                      use_cuda = use_cuda)
+            for idx in range(args.viz_count):
+                images = [images.detach()[idx] \
+                            for images in [covers, secrets, container, revealed]]   # select example images
+                visualize(viz, images, epoch,
+                          c_mode=args.c_mode, s_mode = args.s_mode,
+                          c_draw_rgb=args.c_draw_rgb, s_draw_rgb = args.s_draw_rgb,
+                          use_cuda = use_cuda)
 
         # Save session if minimum loss is renewed
         if not args.draft and not args.local and total_loss < min_loss:
