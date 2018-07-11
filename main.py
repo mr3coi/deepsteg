@@ -48,7 +48,7 @@ def get_parser():
     parser.add_argument("--c-mode", default="RGB",
                         help="The image mode for the cover images (supported: 'RGB', 'L').")
     parser.add_argument("--s-mode", default="RGB",
-                        help="The image mode for the secret images (supported: 'RGB', 'L').")
+                        help="The image mode for the secret images (supported: 'RGB' only).")
     parser.add_argument("--c-draw-rgb", action='store_true',
                         help="Show & compare intensities of each channel of the cover and container images. \
                         Ignored if --c-mode == 'L'.")
@@ -98,8 +98,8 @@ def train(model, train_loader, args, beta=1, cuda=True):
 
     # Compute the number of iterations in an epoch
     num_iters = len(train_loader)
-    if int(args.max_dataset_size) > 0:
-        num_iters = int(args.max_dataset_size) // int(args.batch_size)
+    if args.max_dataset_size > 0:
+        num_iters = args.max_dataset_size // args.batch_size
 
     min_loss = 10000000
 
@@ -107,7 +107,7 @@ def train(model, train_loader, args, beta=1, cuda=True):
     bind_model(model=model, optimizer=optimizer)
 
     # Conduct training
-    for epoch in range(int(args.epochs)):
+    for epoch in range(args.epochs):
         total_loss = 0
 
         if args.verbose:
@@ -121,7 +121,7 @@ def train(model, train_loader, args, beta=1, cuda=True):
 
             # Forward run
             prepped, container, revealed = model.forward(covers, secrets, device=device,
-                                                         noise_level=float(args.noise_level))
+                                                         noise_level=args.noise_level)
 
             # Compute loss
             loss = criterion(container, covers)
@@ -138,7 +138,7 @@ def train(model, train_loader, args, beta=1, cuda=True):
             if args.verbose:
                 print("\t\tLoss at iter {}: {}".format(it+1, loss.item()))
 
-            if float(args.max_dataset_size) > 0 and (it+1) * int(args.batch_size) >= int(args.max_dataset_size):
+            if args.max_dataset_size > 0 and (it+1) * args.batch_size >= args.max_dataset_size:
                 break
 
         if args.verbose:
@@ -148,7 +148,7 @@ def train(model, train_loader, args, beta=1, cuda=True):
         if not args.local:
             nsml.report(summary = True,
                         step = (epoch+1) * len(train_loader),
-                        epoch_total = int(args.epochs),
+                        epoch_total = args.epochs,
                         train__loss = total_loss / num_iters)
 
             # Visualize input & output images
@@ -238,19 +238,19 @@ def main():
     else:
         ROOT_PATH = os.path.join(DATASET_PATH, 'train') # Root directory for the dataset
     loaders = get_loaders(root_path = ROOT_PATH,
-                          batch_size = int(args.batch_size),
+                          batch_size = args.batch_size,
                           shuffle = args.shuffle,
                           c_mode = args.c_mode,
                           s_mode = args.s_mode)
 
     # Run training
-    model = DeepSteg(batch_size = int(args.batch_size), im_dim = (255,255),
+    model = DeepSteg(batch_size = args.batch_size, im_dim = (255,255),
                      c=args.c_mode, s=args.s_mode)        # TODO fix when data is replaced
 
     train(model = model,
           train_loader = loaders['train'],
           args = args,
-          beta = float(args.beta))
+          beta = args.beta)
     print("all successfully completed")
 
 if __name__ == "__main__":
