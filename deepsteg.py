@@ -26,24 +26,32 @@ class DeepSteg(nn.Module):
         channels = {"RGB":3,"L":1}
 
         # =========================== Prep network ===================================
-        self._p_out_channel = 3
+        self._p_out_channel = 3     # assumed to be a multiple of '_p_kernel_num'
 
         ### Convolution layers
         self._p_layer_num = 5
-        self._p_kernel_type = [1,3,5]
+        self._p_kernel_type = [3,5,1]
         self._p_kernel_num = len(self._p_kernel_type)
+        self._p_kernel_sizes = [[val,] * self._p_layer_num for val in self._p_kernel_type]
 
+        ### Concat version
+        self._p_in_channels = [channels[s],] + [50 * self._p_kernel_num,] * (self._p_layer_num - 1)     # input dim
+        self._p_out_channels = [50 * self._p_kernel_num,] * (self._p_layer_num - 1) + [self._p_out_channel,]     # final output dim
+        p_nets = [[nn.Conv2d(c_in, c_out // self._p_kernel_num, kernel_size=kernel, stride=1, padding=(kernel//2)) \
+                        for c_in, c_out, kernel \
+                        in zip(self._p_in_channels, self._p_out_channels, kernel_size)] \
+                    for kernel_size \
+                    in self._p_kernel_sizes]
+        ### Summation version
+        '''
         self._p_in_channels = [channels[s],] + [50,] * (self._p_layer_num - 1)
         self._p_out_channels = [50,] * (self._p_layer_num - 1) + [self._p_out_channel,]
-        self._p_kernel_sizes = [[val,] * self._p_layer_num for val in self._p_kernel_type]
-        self._p_paddings = [[layer_kernel // 2 for layer_kernel in kernel_size] \
-                                for kernel_size in self._p_kernel_sizes]
-
         p_nets = [[nn.Conv2d(c_in, c_out, kernel_size=kernel, stride=1, padding=(kernel//2)) \
                         for c_in, c_out, kernel \
                         in zip(self._p_in_channels, self._p_out_channels, kernel_size)] \
                     for kernel_size \
                     in self._p_kernel_sizes]
+        '''
 
         ### Batch Norm. (input channel: concatenated)
         p_batchnorms = [nn.BatchNorm2d(num_features = C) for C in self._p_out_channels]
@@ -56,52 +64,31 @@ class DeepSteg(nn.Module):
                                         in (*p_nets, p_batchnorms, p_nls))
 
         # =========================== Hide network ===================================
-        '''
-        self._h_layer_num = 5
-        self._h_kernel_type = [1,3,5]
-        self._h_kernel_num = len(self._h_kernel_type)
-
-        self._h_in_channels = [channels[c] + self._p_out_channel,] \
-                + [50 * self._h_kernel_num,] * (self._h_layer_num - 1)     # input dim
-        self._h_out_channels = [50 * self._h_kernel_num,] * (self._h_layer_num - 1) + [channels[c],]     # final output dim
-        self._h_kernel_sizes = [[val,] * self._h_layer_num for val in self._h_kernel_type]
-        self._h_paddings = [[layer_kernel // 2 for layer_kernel in kernel_size] \
-                                for kernel_size in self._h_kernel_sizes]
-
-        h_nets = [[nn.Conv2d(c_in, c_out // self._h_kernel_num, kernel_size=kernel, stride=1, padding=pad) \
-                        for c_in, c_out, kernel, pad \
-                        in zip(self._h_in_channels, self._h_out_channels, kernel_size, paddings)] \
-                    for kernel_size, paddings \
-                    in zip(self._h_kernel_sizes, self._h_paddings)]
-        h_batchnorms = [nn.BatchNorm2d(num_features = C) \
-                for C in self._h_out_channels]          # Batch Norm. (input channel: concatenated)
-        h_nls = [nn.ReLU(),] * (self._h_layer_num-1) + [nn.Sigmoid(),]      # Non-linearities
-
-        self._h_net = nn.ModuleList(nn.ModuleList(layers_list) for layers_list in (*h_nets, h_batchnorms, h_nls))
-        '''
-
         ### Convolution layers
         self._h_layer_num = 5
         self._h_kernel_type = [1,3,5]
         self._h_kernel_num = len(self._h_kernel_type)
+        self._h_kernel_sizes = [[val,] * self._h_layer_num for val in self._h_kernel_type]
 
-        '''
-        self._h_in_channels = [channels[c],] + [50 * self._h_kernel_num,] * (self._h_layer_num - 1)     # input dim
-        self._h_out_channels = [50 * self._h_kernel_num,] * (self._h_layer_num - 1) + [channels[s],]     # final output dim
-        h_nets = [[nn.Conv2d(c_in, c_out // self._h_kernel_num, kernel_size=kernel, stride=1, padding=pad) \
-                        for c_in, c_out, kernel, pad \
-                        in zip(self._h_in_channels, self._h_out_channels, kernel_size, paddings)] \
-                    for kernel_size, paddings \
-                    in zip(self._h_kernel_sizes, self._h_paddings)]
+        ### Concat version
+        self._h_in_channels = [channels[c] + self._p_out_channel,] \
+                               + [50 * self._h_kernel_num,] * (self._h_layer_num - 1)     # input dim
+        self._h_out_channels = [50 * self._h_kernel_num,] * (self._h_layer_num - 1) + [channels[c],]     # final output dim
+        h_nets = [[nn.Conv2d(c_in, c_out // self._h_kernel_num, kernel_size=kernel, stride=1, padding=(kernel//2)) \
+                        for c_in, c_out, kernel \
+                        in zip(self._h_in_channels, self._h_out_channels, kernel_size)] \
+                    for kernel_size \
+                    in self._h_kernel_sizes]
+        ### Summation version
         '''
         self._h_in_channels = [channels[c] + self._p_out_channel,] + [50,] * (self._h_layer_num - 1)
         self._h_out_channels = [50,] * (self._h_layer_num - 1) + [channels[c],]
-        self._h_kernel_sizes = [[val,] * self._h_layer_num for val in self._h_kernel_type]
         h_nets = [[nn.Conv2d(c_in, c_out, kernel_size=kernel, stride=1, padding=(kernel//2) ) \
                         for c_in, c_out, kernel \
                         in zip(self._h_in_channels, self._h_out_channels, kernel_size)] \
                     for kernel_size \
                     in self._h_kernel_sizes]
+        '''
 
         ### Batch Norm. (input channel: concatenated)
         h_batchnorms = [nn.BatchNorm2d(num_features = C) for C in self._h_out_channels]
@@ -116,19 +103,20 @@ class DeepSteg(nn.Module):
         self._r_layer_num = 5
         self._r_kernel_type = [1,3,5]
         self._r_kernel_num = len(self._r_kernel_type)
+        self._r_kernel_sizes = [[val,] * self._r_layer_num for val in self._r_kernel_type]
 
-        '''
+        ### Concat version
         self._r_in_channels = [channels[c],] + [50 * self._r_kernel_num,] * (self._r_layer_num - 1)     # input dim
-        self._r_out_channels = [50 * self._r_kernel_num,] * (self._r_layer_num - 1) + [channels[s],]     # final output dim
-        r_nets = [[nn.Conv2d(c_in, c_out // self._r_kernel_num, kernel_size=kernel, stride=1, padding=pad) \
-                        for c_in, c_out, kernel, pad \
-                        in zip(self._r_in_channels, self._r_out_channels, kernel_size, paddings)] \
-                    for kernel_size, paddings \
-                    in zip(self._r_kernel_sizes, self._r_paddings)]
+        self._r_out_channels = [50 * self._r_kernel_num,] * (self._r_layer_num - 1) + [channels['RGB'],]     # final output dim
+        r_nets = [[nn.Conv2d(c_in, c_out // self._r_kernel_num, kernel_size=kernel, stride=1, padding=(kernel//2)) \
+                        for c_in, c_out, kernel \
+                        in zip(self._r_in_channels, self._r_out_channels, kernel_size)] \
+                    for kernel_size \
+                    in self._r_kernel_sizes]
+        ### Summation version
         '''
         self._r_in_channels = [channels[c],] + [50,] * (self._r_layer_num - 1)     # input dim
         self._r_out_channels = [50,] * (self._r_layer_num - 1) + [channels[s],]     # final output dim
-        self._r_kernel_sizes = [[val,] * self._r_layer_num for val in self._r_kernel_type]
         self._r_paddings = [[layer_kernel // 2 for layer_kernel in kernel_size] \
                                 for kernel_size in self._r_kernel_sizes]
 
@@ -137,6 +125,7 @@ class DeepSteg(nn.Module):
                         in zip(self._r_in_channels, self._r_out_channels, kernel_size)] \
                     for kernel_size \
                     in self._r_kernel_sizes]
+        '''
 
         ### Batch Norm. (input channel: concatenated)
         r_batchnorms = [nn.BatchNorm2d(num_features = C) for C in self._r_out_channels]
@@ -148,6 +137,12 @@ class DeepSteg(nn.Module):
                                         for layers_list \
                                         in (*r_nets, r_batchnorms, r_nls))
 
+        ### Extra layer for grayscale output (if input secret image is in grayscale)
+        if s == 'L':
+            self._gray_net = nn.Conv2d(channels['RGB'], channels['L'], kernel_size=1, stride=1, padding=0)
+        else:
+            self._gray_net = None
+
     def forward(self, covers, secrets, device, noise_level=0):
         # Run prep network
         prep_out = secrets
@@ -156,21 +151,21 @@ class DeepSteg(nn.Module):
             conv_res1 = conv1(prep_out)
             conv_res2 = conv2(prep_out)
             conv_res3 = conv3(prep_out)
-            #prep_out = torch.cat([conv_res1, conv_res2, conv_res3], dim=1)   # deprecated
-            prep_out = reduce(torch.add, [conv_res1, conv_res2, conv_res3])
+            prep_out = torch.cat([conv_res1, conv_res2, conv_res3], dim=1)
+            #prep_out = reduce(torch.add, [conv_res1, conv_res2, conv_res3])
             prep_out = batchnorm(prep_out)
             prep_out = nls(prep_out)
 
         # Run hiding network
-            # concatenate in the last dimension (channels)
+        ### concatenate in the channels dimension
         hidden_out = torch.cat((covers,prep_out), dim=1).to(device)    # hidden_in
 
         for conv1, conv2, conv3, batchnorm, nls in zip(*self._h_net):
             conv_res1 = conv1(hidden_out)
             conv_res2 = conv2(hidden_out)
             conv_res3 = conv3(hidden_out)
-            #hidden_out = torch.cat([conv_res1, conv_res2, conv_res3], dim=1)   # deprecated
-            hidden_out = reduce(torch.add, [conv_res1, conv_res2, conv_res3])
+            hidden_out = torch.cat([conv_res1, conv_res2, conv_res3], dim=1)
+            #hidden_out = reduce(torch.add, [conv_res1, conv_res2, conv_res3])
             hidden_out = batchnorm(hidden_out)
             hidden_out = nls(hidden_out)
 
@@ -185,10 +180,13 @@ class DeepSteg(nn.Module):
             conv_res1 = conv1(revealed_out)
             conv_res2 = conv2(revealed_out)
             conv_res3 = conv3(revealed_out)
-            #revealed_out = torch.cat([conv_res1, conv_res2, conv_res3], dim=1)     # deprecated
-            revealed_out = reduce(torch.add, [conv_res1, conv_res2, conv_res3])
+            revealed_out = torch.cat([conv_res1, conv_res2, conv_res3], dim=1)
+            #revealed_out = reduce(torch.add, [conv_res1, conv_res2, conv_res3])
             revealed_out = batchnorm(revealed_out)
             revealed_out = nls(revealed_out)
+
+        if self._gray_net is not None:
+            revealed_out = self._gray_net(revealed_out)
 
         return prep_out, hidden_out, revealed_out
 
