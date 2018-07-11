@@ -3,8 +3,6 @@ from torch import nn
 import torch.nn.functional as F
 from functools import reduce
 
-# TODO also return IRs
-
 '''
 Notes:
     - All image inputs are assumed to be in RGB format
@@ -30,7 +28,7 @@ class DeepSteg(nn.Module):
 
         ### Convolution layers
         self._p_layer_num = 5
-        self._p_kernel_type = [3,5,1]
+        self._p_kernel_type = [1,3,5]
         self._p_kernel_num = len(self._p_kernel_type)
         self._p_kernel_sizes = [[val,] * self._p_layer_num for val in self._p_kernel_type]
 

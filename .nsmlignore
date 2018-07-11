@@ -3,6 +3,7 @@ sessions
 
 .DS_Store
 *.swp
+*.swo
 .gitignore
 .git
 README.md
