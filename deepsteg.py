@@ -2,7 +2,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from functools import reduce
-from copy import deepcopy
 
 '''
 Notes:
