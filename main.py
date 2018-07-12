@@ -34,7 +34,7 @@ def get_parser():
                         help="The loss function to use for training (supported: 'L1', 'MSE').")
     parser.add_argument("--skip", action='store_true',
                         help="Use U-net style skipped connections (in the hide network).")
-    parser.add_argument('-g', "--gamma", type=float, default=0.01,
+    parser.add_argument('-g', "--gamma", type=float, default=0.1,
                         help="Hyperparameter for weighting the perceptual loss (from relu2-2 of VGG16) \
                                 added to the existing loss (set to 0 to disable).")
 
