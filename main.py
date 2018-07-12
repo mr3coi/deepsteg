@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+import torchvision.models as models
+import torchvision.transforms as tf
 
 import argparse
 import os
@@ -32,6 +34,9 @@ def get_parser():
                         help="The loss function to use for training (supported: 'L1', 'MSE').")
     parser.add_argument("--skip", action='store_true',
                         help="Use U-net style skipped connections (in the hide network).")
+    parser.add_argument('-g', "--gamma", type=float, default=0.01,
+                        help="Hyperparameter for weighting the perceptual loss (from relu2-2 of VGG16) \
+                                added to the existing loss (set to 0 to disable).")
 
     # PyTorch-related
     parser.add_argument("--no-cuda", action='store_true',
@@ -108,6 +113,22 @@ def train(model, train_loader, args, beta=1, cuda=True):
     # For NSML saving function
     bind_model(model=model, optimizer=optimizer)
 
+    # Add perceptual loss term (use upto 'relu2-2' layer of VGG-16)
+    if args.gamma > 0:
+        vgg16_model = models.vgg16_bn(pretrained=True).to(device)
+        layers_list = list(vgg16_model.features.children())[:14]
+        '''
+        for idx in [2,5,9,12]:
+            layers_list[idx] = nn.ReLU(inplace=False)
+        for layer in layers_list:
+            print(layer)
+        '''
+        perceptual_model = torch.nn.Sequential(*layers_list).to(device)
+        for param in perceptual_model.parameters():
+            param.requires_grad = False
+        
+        perceptual_criterion = nn.MSELoss()
+
     # Conduct training
     for epoch in range(args.epochs):
         total_loss = 0
@@ -128,6 +149,16 @@ def train(model, train_loader, args, beta=1, cuda=True):
             # Compute loss
             loss = criterion(container, covers)
             loss += beta * criterion(revealed, secrets)
+
+            if args.gamma > 0:
+                # Normalize each image in a minibatch of {covers, container}
+                size = container.size()
+                means = torch.tensor([0.485, 0.456, 0.406])
+                stds = torch.tensor([0.229, 0.224, 0.225])
+                means, stds = [item.view(3,1,1).expand(container.size()).to(device) for item in [means, stds]]
+                normalized = [torch.div(torch.add(minibatch,-1,means),stds).to(device) \
+                                for minibatch in [container, covers]]
+                loss += args.gamma * criterion(*normalized)
 
             # Do back-propagation
             model.zero_grad()
