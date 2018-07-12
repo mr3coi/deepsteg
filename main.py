@@ -34,7 +34,7 @@ def get_parser():
                         help="Use U-net style skipped connections (in the hide network).")
 
     # PyTorch-related
-    parser.add_argument("--no-cuda", action='store_true',
+    parser.add_argument("--no-cuda", dest='cuda', action='store_false',
                         help="disable use of CUDA and nVIDIA GPUs.")
     parser.add_argument("--shuffle", dest='shuffle', action='store_true',
                         help="Shuffle the dataset when generating DataLoaders.")
@@ -71,16 +71,12 @@ def get_parser():
     return parser
 
 
-def train(model, train_loader, args, beta=1, cuda=True):
-    '''
-    :param beta: weight of errors
-    :type beta: float (>=0)
-    '''
+def train(model, train_loader, args):
     # Set mode to 'train' (for batch norm.)
     model.train()
 
     # Enable CUDA if specified
-    use_cuda = not args.no_cuda and torch.cuda.is_available()
+    use_cuda = args.cuda and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
     model = model.to(device)
 
@@ -127,7 +123,7 @@ def train(model, train_loader, args, beta=1, cuda=True):
 
             # Compute loss
             loss = criterion(container, covers)
-            loss += beta * criterion(revealed, secrets)
+            loss += args.beta * criterion(revealed, secrets)
 
             # Do back-propagation
             model.zero_grad()
@@ -138,7 +134,7 @@ def train(model, train_loader, args, beta=1, cuda=True):
             total_loss += loss.item()
 
             if args.verbose:
-                print("\t\tLoss at iter {}: {}".format(it+1, loss.item()))
+                print("\t\tLoss sum at iter {}: {}".format(it+1, loss.item()))
 
             if args.max_dataset_size > 0 and (it+1) * args.batch_size >= args.max_dataset_size:
                 break
@@ -247,12 +243,9 @@ def main():
 
     # Run training
     model = DeepSteg(batch_size = args.batch_size, im_dim = (255,255),
-                     c=args.c_mode, s=args.s_mode, skip=args.skip)        # TODO fix when data is replaced
+                     c=args.c_mode, s=args.s_mode, skip=args.skip)        # TODO fix (255,255) when data is replaced
 
-    train(model = model,
-          train_loader = loaders['train'],
-          args = args,
-          beta = args.beta)
+    train(model = model, train_loader = loaders['train'], args = args)
     print("all successfully completed")
 
 if __name__ == "__main__":
