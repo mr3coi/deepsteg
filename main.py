@@ -30,6 +30,8 @@ def get_parser():
                         help="The scaling parameter for the noise added to the reveal network.")
     parser.add_argument("--loss", default='MSE',
                         help="The loss function to use for training (supported: 'L1', 'MSE').")
+    parser.add_argument("--skip", action='store_true',
+                        help="Use U-net style skipped connections (in the hide network).")
 
     # PyTorch-related
     parser.add_argument("--no-cuda", action='store_true',
@@ -245,7 +247,7 @@ def main():
 
     # Run training
     model = DeepSteg(batch_size = args.batch_size, im_dim = (255,255),
-                     c=args.c_mode, s=args.s_mode)        # TODO fix when data is replaced
+                     c=args.c_mode, s=args.s_mode, skip=args.skip)        # TODO fix when data is replaced
 
     train(model = model,
           train_loader = loaders['train'],
